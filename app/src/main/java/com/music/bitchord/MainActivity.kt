@@ -4197,6 +4197,15 @@ private fun BitChordApp(
                         onBlockedControl = showHostOnlyNotice,
                         dock = activeDock,
                         pull = playerSheetMotion.takeIf { !reducePlayerMotion },
+                        // Swiping the bar down stops playback and empties the
+                        // queue, which takes the bar off the screen. Left to
+                        // the host while a party's host holds the controls.
+                        onDismiss = if (controlsLocked) null else {
+                            {
+                                controller?.stop()
+                                controller?.clearMediaItems()
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else Column(
@@ -4234,6 +4243,12 @@ private fun BitChordApp(
                             onBlockedControl = showHostOnlyNotice,
                             dock = activeDock,
                             pull = playerSheetMotion.takeIf { !reducePlayerMotion },
+                            onDismiss = if (controlsLocked) null else {
+                                {
+                                    controller?.stop()
+                                    controller?.clearMediaItems()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(8.dp))
