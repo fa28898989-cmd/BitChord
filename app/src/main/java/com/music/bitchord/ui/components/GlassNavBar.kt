@@ -108,6 +108,8 @@ fun GlassNavBar(
     dock: PlayerDock? = null,
     /** Dragging the bar's player up into the full player. */
     pull: MiniPlayerPull? = null,
+    /** Pulling the now playing bar down and away. Null turns the gesture off. */
+    onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     // Held for the same reason [tabs] is. The glass factory below closes over
@@ -161,6 +163,7 @@ fun GlassNavBar(
                     onBlockedControl = onBlockedControl,
                     dock = dock,
                     pull = pull,
+                    onDismiss = onDismiss,
                     modifier = accessoryModifier.then(glassSurface()),
                 )
             }
@@ -181,6 +184,7 @@ fun GlassNavBar(
                     onBlockedControl = onBlockedControl,
                     dock = dock,
                     pull = pull,
+                    onDismiss = onDismiss,
                     modifier = accessoryModifier.fillMaxWidth().then(glassSurface()),
                 )
             }
@@ -307,6 +311,7 @@ private fun GlassNowPlaying(
     onBlockedControl: () -> Unit,
     dock: PlayerDock?,
     pull: MiniPlayerPull?,
+    onDismiss: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberHaptics()
@@ -357,6 +362,7 @@ private fun GlassNowPlaying(
                 },
                 locked = controlsLocked,
                 onBlocked = onBlockedControl,
+                onDismiss = onDismiss,
             )
             .graphicsLayer {
                 scaleX = pressScale
