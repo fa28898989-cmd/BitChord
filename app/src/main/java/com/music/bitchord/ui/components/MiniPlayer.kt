@@ -71,6 +71,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import kotlin.math.abs
@@ -137,6 +138,15 @@ private val ROW_PADDING_HORIZONTAL = 12.dp
  * back to matching [SongRow].
  */
 private val ART_CORNER = 8.dp
+
+/** How far the bar must be pulled down to count as dismissed. */
+private val DISMISS_THRESHOLD = 40.dp
+
+/** How far the bar slides (and fades) on its way out. */
+private val DISMISS_TRAVEL = 96.dp
+
+/** A downward flick faster than this, in pixels a second, dismisses too. */
+private const val DISMISS_FLING = 1500f
 
 /** Distance that makes a horizontal drag an intentional track change. */
 private val TRACK_SWIPE_THRESHOLD = 72.dp
@@ -216,6 +226,8 @@ internal fun Modifier.miniPlayerGestures(
     /** Listening in a party whose host holds the controls. Swipes say so instead of skipping. */
     locked: Boolean = false,
     onBlocked: () -> Unit = {},
+    /** Pulling the bar down and away. Null leaves a downward drag doing nothing. */
+    onDismiss: (() -> Unit)? = null,
 ): Modifier {
     // Playback state updates can recompose the bar while a finger is down.
     // Keep the gesture coroutine alive through those updates while still
@@ -225,14 +237,19 @@ internal fun Modifier.miniPlayerGestures(
     val currentOnPrevious by rememberUpdatedState(onPrevious)
     val currentLocked by rememberUpdatedState(locked)
     val currentOnBlocked by rememberUpdatedState(onBlocked)
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
     val scope = rememberCoroutineScope()
     // Read at draw only, in the layer below: a pull moves the bar without
     // recomposing it.
     val lift = remember { mutableFloatStateOf(0f) }
+    // How far the bar has been dragged down, in pixels.
+    val slide = remember { mutableFloatStateOf(0f) }
     val settle = remember { arrayOfNulls<Job>(1) }
     return pointerInput(Unit) {
         val trackThreshold = TRACK_SWIPE_THRESHOLD.toPx()
         val liftEase = PULL_LIFT_EASE.toPx()
+        val dismissThreshold = DISMISS_THRESHOLD.toPx()
+        val dismissTravel = DISMISS_TRAVEL.toPx()
         val maxVelocity = viewConfiguration.maximumFlingVelocity
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
@@ -240,6 +257,7 @@ internal fun Modifier.miniPlayerGestures(
             // Up to the slop: which way this is heading, or nothing at all.
             var start: PointerInputChange? = null
             var vertical = false
+            var dismissing = false
             while (start == null) {
                 val change = awaitPointerEvent().changes.firstOrNull { it.id == pointer }
                     ?: return@awaitEachGesture
@@ -251,12 +269,57 @@ internal fun Modifier.miniPlayerGestures(
                 // Downwards has nothing to do on the bar, and nor has a pull
                 // with no player to pull: left as they always were, a drag that
                 // ends inside the bar still counts as its tap.
-                if (!vertical && abs(moved.x) < abs(moved.y)) return@awaitEachGesture
+                dismissing = moved.y > 0f && abs(moved.x) < moved.y * PULL_BIAS &&
+                    currentOnDismiss != null
+                if (!vertical && !dismissing && abs(moved.x) < abs(moved.y)) return@awaitEachGesture
                 if (vertical && currentPull == null) return@awaitEachGesture
                 change.consume()
                 start = change
             }
             val slopped = start ?: return@awaitEachGesture
+
+            if (dismissing) {
+                settle[0]?.cancel()
+                val tracker = VelocityTracker()
+                tracker.addPointerInputChange(down)
+                tracker.addPointerInputChange(slopped)
+                var dragged = (slopped.position.y - down.position.y).coerceAtLeast(0f)
+                slide.floatValue = dragged
+                val finished = drag(pointer) { change ->
+                    // Read before consuming: a consumed change reports no movement.
+                    val delta = change.positionChange().y
+                    change.consume()
+                    tracker.addPointerInputChange(change)
+                    dragged = (dragged + delta).coerceAtLeast(0f)
+                    slide.floatValue = dragged
+                }
+                val velocity = if (finished) tracker.calculateVelocity().y else 0f
+                val dismissed = finished &&
+                    (dragged >= dismissThreshold || velocity > DISMISS_FLING)
+                val from = slide.floatValue
+                settle[0] = scope.launch {
+                    if (dismissed) {
+                        animate(
+                            initialValue = from,
+                            targetValue = dismissTravel,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                        ) { value, _ -> slide.floatValue = value }
+                        currentOnDismiss?.invoke()
+                        // If the bar is still on screen after this, bring it back
+                        // rather than leave it invisible.
+                        delay(300)
+                    }
+                    animate(
+                        initialValue = slide.floatValue,
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = 0.8f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    ) { value, _ -> slide.floatValue = value }
+                }
+                return@awaitEachGesture
+            }
 
             if (!vertical) {
                 var dragged = slopped.position.x - down.position.x
@@ -311,7 +374,10 @@ internal fun Modifier.miniPlayerGestures(
                 ) { value, _ -> lift.floatValue = value }
             }
         }
-    }.graphicsLayer { translationY = -lift.floatValue }
+    }.graphicsLayer {
+        translationY = slide.floatValue - lift.floatValue
+        alpha = 1f - (slide.floatValue / DISMISS_TRAVEL.toPx()).coerceIn(0f, 1f)
+    }
 }
 
 /**
@@ -364,6 +430,8 @@ fun MiniPlayer(
     dock: PlayerDock? = null,
     /** Dragging the bar up into the player. */
     pull: MiniPlayerPull? = null,
+    /** Pulling the bar down and away. Null turns the gesture off. */
+    onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
@@ -389,6 +457,7 @@ fun MiniPlayer(
                 },
                 locked = controlsLocked,
                 onBlocked = onBlockedControl,
+                onDismiss = onDismiss,
             )
             .clip(shape)
             .then(
