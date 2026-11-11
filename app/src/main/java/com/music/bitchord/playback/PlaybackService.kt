@@ -2967,6 +2967,9 @@ class PlaybackService : MediaLibraryService() {
 
     private fun applyBoundedContextTopUp() {
         val exoPlayer = player ?: return
+        // A queue the listener has just emptied stays empty rather than being
+        // topped back up from the context it came from.
+        if (exoPlayer.mediaItemCount == 0) return
         val window = boundedContextWindow ?: return
         val snapshot = boundedContextRegistry.snapshot() ?: return
         if (snapshot.contextToken != boundedContextToken) return
@@ -6111,6 +6114,9 @@ class PlaybackService : MediaLibraryService() {
     /** Capture logical state and only the materialized bounded projection. */
     private fun saveBoundedContextSnapshot(player: ExoPlayer, immediately: Boolean = false) {
         if (ListenTogether.state.value.inParty) return
+        // An emptied queue has no current item to snapshot, and the clamp below
+        // is an error on an empty range. See [saveQueueSnapshot].
+        if (player.mediaItemCount == 0) return
         val window = boundedContextWindow ?: return
         val context = boundedContextRegistry.snapshot() ?: return
         val source = boundedContextSource ?: return
