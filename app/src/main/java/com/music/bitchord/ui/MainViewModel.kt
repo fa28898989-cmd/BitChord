@@ -1022,6 +1022,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * [addToPlaylists] for a whole selection of tracks. Counts are in tracks,
+     * summed over the playlists chosen.
+     *
+     * One read of each playlist and one request per fifty tracks, rather than
+     * a read and a request for every track: a selection can be a whole album,
+     * and a burst of edits is what YouTube answers with a rate limit. The
+     * playlists are still taken one after another.
+     */
+    fun addSongsToPlaylists(
+        playlists: List<UserPlaylist>,
+        songs: List<Song>,
+        onResult: (added: Int, alreadyThere: Int, failed: Int) -> Unit = { _, _, _ -> },
+    ) {
+        if (!requireSignIn() || playlists.isEmpty() || songs.isEmpty()) return
+        val distinct = songs.distinctBy { it.videoId }
+        viewModelScope.launch {
+            var added = 0
+            var alreadyThere = 0
+            var failed = 0
+            for (playlist in playlists) {
+                val openSongs = (_detailStack.value.firstOrNull { it.browseId == playlist.browseId }
+                    ?.songs as? UiState.Success)?.data
+                val known = openSongs
+                    ?: YtMusicRepository.allSongs(playlist.browseId).getOrNull()
+                val knownIds = known?.mapTo(HashSet()) { it.videoId } ?: HashSet<String>()
+                val fresh = distinct.filter { it.videoId !in knownIds }
+                alreadyThere += distinct.size - fresh.size
+                for (chunk in fresh.chunked(50)) {
+                    YtMusicRepository.addToPlaylist(playlist.playlistId, chunk.map { it.videoId }).fold(
+                        onSuccess = { addedIds ->
+                            libraryStale = true
+                            chunk.forEach { song ->
+                                appendToOpenPlaylist(playlist.browseId, song, addedIds[song.videoId])
+                            }
+                            added += chunk.size
+                        },
+                        onFailure = { failed += chunk.size },
+                    )
+                }
+            }
+            onResult(added, alreadyThere, failed)
+        }
+    }
+
     private enum class AddOutcome { ADDED, ALREADY_THERE, FAILED }
 
     private suspend fun addOne(playlist: UserPlaylist, song: Song): AddOutcome {
@@ -1186,6 +1231,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 },
                 onFailure = {},
             )
+        }
+    }
+
+    /**
+     * [removeFromPlaylist] for a selection: one request per fifty tracks, and
+     * every removed row taken out from under the reader in one go. A track
+     * without a per-entry id is left alone — it has nothing to be removed by.
+     */
+    fun removeSongsFromPlaylist(
+        browseId: String,
+        songs: List<Song>,
+        onResult: (removed: Int, failed: Int) -> Unit = { _, _ -> },
+    ) {
+        val entries = songs.mapNotNull { song -> song.setVideoId?.let { id -> id to song.videoId } }
+        if (entries.isEmpty() || !requireSignIn()) return
+        val playlistId = browseId.removePrefix("VL")
+        viewModelScope.launch {
+            var removed = 0
+            var failed = 0
+            for (chunk in entries.chunked(50)) {
+                YtMusicRepository.removeFromPlaylist(playlistId, chunk).fold(
+                    onSuccess = {
+                        libraryStale = true
+                        val gone = chunk.mapTo(HashSet()) { it.first }
+                        _detailStack.value = _detailStack.value.map { page ->
+                            val current = (page.songs as? UiState.Success)?.data
+                            if (page.browseId != browseId || current == null) {
+                                page
+                            } else {
+                                page.copy(
+                                    songs = UiState.Success(
+                                        current.filterNot { row ->
+                                            val id = row.setVideoId
+                                            id != null && id in gone
+                                        },
+                                    ),
+                                )
+                            }
+                        }
+                        removed += chunk.size
+                    },
+                    onFailure = { failed += chunk.size },
+                )
+            }
+            onResult(removed, failed)
         }
     }
 
