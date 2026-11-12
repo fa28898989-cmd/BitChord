@@ -1,5 +1,6 @@
 package com.music.bitchord.ui.screens
 
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -138,6 +139,8 @@ class LocalFolder(
     val onDownload: ((List<Song>) -> Unit)? = null,
     /** Cached songs only: takes the selection out of the song cache. */
     val onRemoveFromCache: ((List<Song>) -> Unit)? = null,
+    /** Downloads only: files the selection into one of the offline player's playlists. */
+    val onAddToPlaylist: ((List<Song>) -> Unit)? = null,
     /** Which ways of looking at the tracks this folder offers, in order. */
     val tabs: List<LocalFolderTab> = LocalFolderTab.BASIC,
     /**
@@ -186,7 +189,9 @@ class LocalFolderState {
         private set
     var selectedGroups by mutableStateOf<Set<String>>(emptySet())
         private set
-    val selecting: Boolean get() = selectedIds.isNotEmpty()
+    /** Set by the header's Select button: selecting is on before anything is ticked. */
+    var armed by mutableStateOf(false)
+    val selecting: Boolean get() = armed || selectedIds.isNotEmpty()
 
     fun select(song: Song) {
         selectedIds = selectedIds + song.videoId
@@ -217,6 +222,7 @@ class LocalFolderState {
     fun clear() {
         selectedIds = emptySet()
         selectedGroups = emptySet()
+        armed = false
     }
 }
 
@@ -868,6 +874,16 @@ internal fun LocalFolderSelectionBar(
                 enabled = count > 0,
                 onClick = { remove(chosen()) },
             )
+        }
+        folder.onAddToPlaylist?.let { addToPlaylist ->
+            IconButton(onClick = { addToPlaylist(chosen()) }, enabled = count > 0) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.PlaylistAdd,
+                    contentDescription = stringResource(R.string.add_to_playlist),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
         folder.onDelete?.let { delete ->
             SelectionAction(

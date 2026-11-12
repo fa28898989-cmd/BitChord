@@ -1,5 +1,11 @@
 package com.music.bitchord.ui.screens
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.music.bitchord.ui.components.trackArtSize
 import android.os.Build
 import com.music.bitchord.R
@@ -367,6 +373,12 @@ fun DetailScreen(
      * [ArtworkPalette] so it reads as this page rather than a sheet over it.
      */
     reorder: (@Composable (ArtworkPalette) -> Unit)? = null,
+    /**
+     * What the header's Select button does on an album or playlist page: the
+     * tracks it ticks and the actions offered on them. Null leaves the button
+     * off, which is every page but those two.
+     */
+    selection: DetailSelection? = null,
 ) {
     val rawSongs = (page.songs as? UiState.Success)?.data.orEmpty()
     // A folder keeps its own sort — the one its top bar menu sets — rather
@@ -477,6 +489,21 @@ fun DetailScreen(
         emptyList()
     }
     BackHandler(enabled = folderState?.selecting == true) { folderState?.clear() }
+
+    // The Select button's own selection on an album or playlist page, by track
+    // id, dropped with the page. A device folder keeps its selection in its own
+    // [LocalFolderState] above.
+    var picking by rememberSaveable(page.browseId) { mutableStateOf(false) }
+    var picked by remember(page.browseId) { mutableStateOf(emptySet<String>()) }
+    val pickingNow = picking && selection != null && folder == null
+    val stopPicking = {
+        picking = false
+        picked = emptySet()
+    }
+    BackHandler(enabled = pickingNow) { stopPicking() }
+    val togglePick: (Song) -> Unit = { song ->
+        picked = if (song.videoId in picked) picked - song.videoId else picked + song.videoId
+    }
 
     // What marks a row as already downloaded, tinted from the sleeve like the
     // rest of the page. Null on any page that is itself a reading of this
@@ -600,6 +627,12 @@ fun DetailScreen(
                         onArtistClick = onArtistClick.takeIf { folder == null },
                         onToggleLibrary = onToggleLibrary,
                         onDownloadAll = folder?.onDownload?.let { download -> { download(songs) } },
+                        onSelect = when {
+                            folder != null && folderState != null && folder.selectable ->
+                                ({ folderState.armed = true })
+                            folder == null && selection != null -> ({ picking = true })
+                            else -> null
+                        },
                     )
                 }
             }
@@ -776,6 +809,8 @@ fun DetailScreen(
                     ) { position, entry ->
                         val song = entry.value
                         val isCurrent = isCurrentRow(song)
+                        val rowPicked = pickingNow && song.videoId in picked
+                        Box {
                         SongRow(
                             song = if (numbered) {
                                 song
@@ -783,11 +818,13 @@ fun DetailScreen(
                                 song.copy(thumbnailUrl = song.thumbnailUrl ?: page.thumbnailUrl)
                             },
                             onClick = {
-                                onSongClick(queue, position)
+                                if (pickingNow) togglePick(song) else onSongClick(queue, position)
                             },
-                            onLongPress = { onSongLongPress(song) },
-                            onSwipeToQueue = { onSongSwipe(song) },
-                            rowBackground = Color.Transparent,
+                            onLongPress = {
+                                if (pickingNow) togglePick(song) else onSongLongPress(song)
+                            },
+                            onSwipeToQueue = { if (!pickingNow) onSongSwipe(song) },
+                            rowBackground = if (rowPicked) palette.accent.copy(alpha = 0.16f) else Color.Transparent,
                             // The track's place on the release, not its place in
                             // what the filter — or a sort — left standing.
                             trackNumber = originalTrackNumbers[song.videoId].takeIf { numbered },
@@ -798,6 +835,17 @@ fun DetailScreen(
                             activeTint = palette.accent,
                             searchPlayingStyle = true,
                         )
+                        // Over the row's own ⋮ while selecting, so a tap anywhere
+                        // on the right of it ticks the row rather than opening a menu.
+                        if (pickingNow) {
+                            PickMark(
+                                picked = rowPicked,
+                                palette = palette,
+                                onToggle = { togglePick(song) },
+                                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+                            )
+                        }
+                        }
                         if (position < matches.lastIndex) {
                             HorizontalDivider(
                                 modifier = Modifier.padding(
@@ -887,6 +935,19 @@ fun DetailScreen(
                             .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER),
                     )
                 }
+                if (pickingNow && selection != null) {
+                    DetailSelectionBar(
+                        count = picked.size,
+                        allPicked = songs.isNotEmpty() && songs.all { it.videoId in picked },
+                        onSelectAll = { picked = songs.mapTo(linkedSetOf()) { it.videoId } },
+                        selection = selection,
+                        chosen = { songs.filter { it.videoId in picked } },
+                        onDone = stopPicking,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = topBarContentPadding(), start = PAGE_GUTTER, end = PAGE_GUTTER),
+                    )
+                }
 
     }
 } else {
@@ -930,6 +991,8 @@ private fun ReleaseHeader(
     onToggleLibrary: (() -> Unit)?,
     /** The Cached songs folder's: saves every track on it to Downloads. Null hides it. */
     onDownloadAll: (() -> Unit)? = null,
+    /** Starts selecting tracks: a button beside Play. Null leaves it off. */
+    onSelect: (() -> Unit)? = null,
 ) {
     val (credit, meta) = page.headerLines(songs.size, songs.playtime())
     // Every row on a release carries the same credit — see [pageCredit] — so
@@ -1132,6 +1195,14 @@ private fun ReleaseHeader(
                             size = RELEASE_SIDE_BUTTON,
                         )
                     }
+                    onSelect?.let {
+                        CircleIconButton(
+                            icon = Icons.Rounded.CheckCircleOutline,
+                            contentDescription = "Select",
+                            onClick = it,
+                            size = RELEASE_SIDE_BUTTON,
+                        )
+                    }
                     return@Row
                 }
                 CircleIconButton(
@@ -1172,6 +1243,14 @@ private fun ReleaseHeader(
                         onClick = {},
                         size = RELEASE_SIDE_BUTTON,
                         enabled = false,
+                    )
+                }
+                onSelect?.let {
+                    CircleIconButton(
+                        icon = Icons.Rounded.CheckCircleOutline,
+                        contentDescription = "Select",
+                        onClick = it,
+                        size = RELEASE_SIDE_BUTTON,
                     )
                 }
             }
@@ -2505,5 +2584,154 @@ private fun List<Song>.playtime(): String? {
         minutes <= 0 -> null
         minutes < 60 -> stringResource(R.string.minutes_short, minutes.toInt())
         else -> stringResource(R.string.hours_minutes_short, (minutes / 60).toInt(), (minutes % 60).toInt())
+    }
+}
+
+/**
+ * What the Select button's bar does on an album or playlist page. Handed in by
+ * the caller, which owns downloads and playlists. A null [onRemoveFromPlaylist]
+ * is a page the account can't edit.
+ */
+class DetailSelection(
+    val onDownload: (List<Song>) -> Unit,
+    val onAddToPlaylist: (List<Song>) -> Unit,
+    val onRemoveFromPlaylist: ((List<Song>) -> Unit)? = null,
+)
+
+/** The ring at a row's trailing edge while selecting: filled and ticked once it is chosen. */
+@Composable
+private fun PickMark(
+    picked: Boolean,
+    palette: ArtworkPalette,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(if (picked) palette.accent else Color.Transparent)
+                .border(1.5.dp, if (picked) palette.accent else palette.onBackgroundVariant, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (picked) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The Select button's actions, floated under the top bar while selecting — the
+ * same place a device folder's selection puts its own.
+ */
+@Composable
+private fun DetailSelectionBar(
+    count: Int,
+    allPicked: Boolean,
+    onSelectAll: () -> Unit,
+    selection: DetailSelection,
+    chosen: () -> List<Song>,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(14.dp)
+    val dark = isSystemInDarkTheme()
+    val tint = if (dark) Color.White else MaterialTheme.colorScheme.primary
+    var confirmRemove by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .shadow(10.dp, shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant, shape)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onSelectAll, enabled = !allPicked) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = stringResource(R.string.select_all),
+                tint = tint,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Text(
+            text = "$count ${stringResource(R.string.selected)}",
+            style = MaterialTheme.typography.titleSmall,
+            color = if (dark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = {
+                selection.onDownload(chosen())
+                onDone()
+            },
+            enabled = count > 0,
+        ) {
+            Icon(
+                Icons.Rounded.Download,
+                contentDescription = stringResource(R.string.download),
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        IconButton(
+            onClick = {
+                selection.onAddToPlaylist(chosen())
+                onDone()
+            },
+            enabled = count > 0,
+        ) {
+            Icon(
+                Icons.AutoMirrored.Rounded.PlaylistAdd,
+                contentDescription = stringResource(R.string.add_to_playlist),
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        if (selection.onRemoveFromPlaylist != null) {
+            IconButton(onClick = { confirmRemove = true }, enabled = count > 0) {
+                Icon(
+                    Icons.Rounded.Delete,
+                    contentDescription = stringResource(R.string.remove_from_playlist),
+                    tint = Color(0xFFFF453A),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        TextButton(onClick = onDone) { Text(stringResource(R.string.cancel)) }
+    }
+    val remove = selection.onRemoveFromPlaylist
+    if (confirmRemove && remove != null) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text(stringResource(R.string.remove_from_playlist)) },
+            text = { Text("$count ${stringResource(R.string.selected)}") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRemove = false
+                        remove(chosen())
+                        onDone()
+                    },
+                ) { Text(stringResource(R.string.remove_from_playlist)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 }
