@@ -282,6 +282,10 @@ fun SettingsScreen(
     val usbAllowFixedVolume by AppSettings.usbAllowFixedVolume.collectAsStateWithLifecycle()
     val convertForLimitedDac by AppSettings.convertForLimitedDac.collectAsStateWithLifecycle()
     val loudnessNormalization by AppSettings.loudnessNormalization.collectAsStateWithLifecycle()
+    val collectionAutoplay by AppSettings.collectionAutoplay.collectAsStateWithLifecycle()
+    val collectionShuffle by AppSettings.collectionShuffle.collectAsStateWithLifecycle()
+    val radioAutoplay by AppSettings.radioAutoplay.collectAsStateWithLifecycle()
+    val radioShuffle by AppSettings.radioShuffle.collectAsStateWithLifecycle()
     val loudnessOffOnSpeaker by AppSettings.loudnessOffOnSpeaker.collectAsStateWithLifecycle()
     val outputStatus by AudioOutputStatus.current.collectAsStateWithLifecycle()
     val playingFormat by NerdStats.current.collectAsStateWithLifecycle()
@@ -675,6 +679,45 @@ fun SettingsScreen(
             header = stringResource(R.string.playback),
             footer = stringResource(R.string.bit_perfect_bypassed_footer).takeIf { bitPerfectReady },
         ) {
+            // What a queue starts with, by where it was started. The player's own
+            // AutoPlay and Shuffle buttons still override it for the queue that
+            // is playing; the next one starts from these again.
+            val collectionAutoplayTitle = "AutoPlay for albums & playlists"
+            row(collectionAutoplayTitle, "autoplay", "album", "playlist", "infinite") {
+                SettingsSubRow(
+                    title = collectionAutoplayTitle,
+                    subtitle = "Keep playing similar songs after an album, playlist or list ends",
+                    checked = collectionAutoplay,
+                    onCheckedChange = AppSettings::setCollectionAutoplay,
+                )
+            }
+            val collectionShuffleTitle = "Shuffle for albums & playlists"
+            row(collectionShuffleTitle, "shuffle", "album", "playlist") {
+                SettingsSubRow(
+                    title = collectionShuffleTitle,
+                    subtitle = "Start them shuffled when you tap a song. Play and Shuffle buttons still win",
+                    checked = collectionShuffle,
+                    onCheckedChange = AppSettings::setCollectionShuffle,
+                )
+            }
+            val radioAutoplayTitle = "AutoPlay for Home & Search"
+            row(radioAutoplayTitle, "autoplay", "home", "search", "radio", "infinite") {
+                SettingsSubRow(
+                    title = radioAutoplayTitle,
+                    subtitle = "Keep playing similar songs after a song picked from Home or Search",
+                    checked = radioAutoplay,
+                    onCheckedChange = AppSettings::setRadioAutoplay,
+                )
+            }
+            val radioShuffleTitle = "Shuffle for Home & Search"
+            row(radioShuffleTitle, "shuffle", "home", "search", "radio") {
+                SettingsSubRow(
+                    title = radioShuffleTitle,
+                    subtitle = "Start songs picked from Home or Search shuffled",
+                    checked = radioShuffle,
+                    onCheckedChange = AppSettings::setRadioShuffle,
+                )
+            }
             val outputPrecisionTitle = stringResource(R.string.output_precision)
             row(outputPrecisionTitle, "pcm", "bit depth", "sample rate", "dac") {
                 SettingsRow(
