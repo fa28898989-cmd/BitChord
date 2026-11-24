@@ -449,6 +449,18 @@ object AppSettings {
     /** Keep playing similar music once the queue runs out. */
     val autoplay = MutableStateFlow(true)
 
+    /**
+     * AutoPlay and Shuffle as a queue *starts*, by where it was started from.
+     * The player's own buttons still change them for the queue that is playing;
+     * the next queue starts from these again. "Collection" is an album, a
+     * playlist or any other list played from its page; "radio" is a song picked
+     * off Home or Search, or a station started from a song's menu.
+     */
+    val collectionAutoplay = MutableStateFlow(false)
+    val collectionShuffle = MutableStateFlow(false)
+    val radioAutoplay = MutableStateFlow(true)
+    val radioShuffle = MutableStateFlow(false)
+
     /** Whether the queue is held in shuffled order (Mix button). */
     val shuffleEnabled = MutableStateFlow(false)
 
@@ -1105,6 +1117,10 @@ object AppSettings {
             AppFont.valueOf(prefs.getString(KEY_APP_FONT, null) ?: AppFont.DEFAULT.name)
         }.getOrDefault(AppFont.DEFAULT)
         autoplay.value = prefs.getBoolean(KEY_AUTOPLAY, true)
+        collectionAutoplay.value = prefs.getBoolean(KEY_COLLECTION_AUTOPLAY, false)
+        collectionShuffle.value = prefs.getBoolean(KEY_COLLECTION_SHUFFLE, false)
+        radioAutoplay.value = prefs.getBoolean(KEY_RADIO_AUTOPLAY, true)
+        radioShuffle.value = prefs.getBoolean(KEY_RADIO_SHUFFLE, false)
         shuffleEnabled.value = prefs.getBoolean(KEY_SHUFFLE_ENABLED, false)
         repeatMode.value = prefs.getInt(KEY_REPEAT_MODE, Player.REPEAT_MODE_OFF)
         showNerdStats.value = prefs.getBoolean(KEY_NERD_STATS, false)
@@ -1341,6 +1357,26 @@ object AppSettings {
     fun setAutoplay(value: Boolean) {
         autoplay.value = value
         prefs.edit().putBoolean(KEY_AUTOPLAY, value).apply()
+    }
+
+    fun setCollectionAutoplay(value: Boolean) {
+        collectionAutoplay.value = value
+        prefs.edit().putBoolean(KEY_COLLECTION_AUTOPLAY, value).apply()
+    }
+
+    fun setCollectionShuffle(value: Boolean) {
+        collectionShuffle.value = value
+        prefs.edit().putBoolean(KEY_COLLECTION_SHUFFLE, value).apply()
+    }
+
+    fun setRadioAutoplay(value: Boolean) {
+        radioAutoplay.value = value
+        prefs.edit().putBoolean(KEY_RADIO_AUTOPLAY, value).apply()
+    }
+
+    fun setRadioShuffle(value: Boolean) {
+        radioShuffle.value = value
+        prefs.edit().putBoolean(KEY_RADIO_SHUFFLE, value).apply()
     }
 
     fun setShuffleEnabled(value: Boolean) {
@@ -2452,6 +2488,10 @@ object AppSettings {
     private const val KEY_THEME = "theme_mode"
     private const val KEY_APP_FONT = "app_font"
     private const val KEY_AUTOPLAY = "autoplay"
+    private const val KEY_COLLECTION_AUTOPLAY = "collection_autoplay"
+    private const val KEY_COLLECTION_SHUFFLE = "collection_shuffle"
+    private const val KEY_RADIO_AUTOPLAY = "radio_autoplay"
+    private const val KEY_RADIO_SHUFFLE = "radio_shuffle"
     private const val KEY_SHUFFLE_ENABLED = "shuffle_enabled"
     private const val KEY_REPEAT_MODE = "repeat_mode"
     private const val KEY_NERD_STATS = "show_nerd_stats"
