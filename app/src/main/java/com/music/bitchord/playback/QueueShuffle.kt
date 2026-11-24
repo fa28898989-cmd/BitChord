@@ -174,10 +174,29 @@ object QueueShuffle {
      * one about to replace this one. [playSongs] builds that one shuffled.
      */
     fun enableForNextQueue() {
+        setForNextQueue(true)
+        explicitChoiceAt = System.currentTimeMillis()
+    }
+
+    /** Shuffle on or off for the next queue, with no record of anyone having asked. */
+    fun setForNextQueue(enabled: Boolean) {
         original = emptyList()
         clearCanonicalContext()
-        _enabled.value = true
-        AppSettings.setShuffleEnabled(true)
+        _enabled.value = enabled
+        AppSettings.setShuffleEnabled(enabled)
+    }
+
+    @Volatile private var explicitChoiceAt = 0L
+
+    /**
+     * True once if a Shuffle or Play button chose shuffle for the queue about to
+     * start, within the last few seconds. Settings' per-source defaults leave
+     * that choice alone; a tap on a row, which chooses nothing, gets them.
+     */
+    fun consumeExplicitChoice(): Boolean {
+        val recent = System.currentTimeMillis() - explicitChoiceAt < 5_000L
+        explicitChoiceAt = 0L
+        return recent
     }
 
     /**
@@ -186,10 +205,8 @@ object QueueShuffle {
      * shuffle was left on from the last queue (#1148).
      */
     fun disableForNextQueue() {
-        original = emptyList()
-        clearCanonicalContext()
-        _enabled.value = false
-        AppSettings.setShuffleEnabled(false)
+        setForNextQueue(false)
+        explicitChoiceAt = System.currentTimeMillis()
     }
 
     /**
